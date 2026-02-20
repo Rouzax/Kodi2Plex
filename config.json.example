@@ -4,6 +4,7 @@
     "library_names": [
         "TV Shows"
     ],
+    "sync_mode": "collection",
     "collection_name": null,
     "playlist_path": "TV Shows.xsp",
     "log_file": null,
