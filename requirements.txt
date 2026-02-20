@@ -1,0 +1,2 @@
+plexapi>=4.15.0
+thefuzz[speedup]>=0.22.0

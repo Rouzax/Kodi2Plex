@@ -1,0 +1,12 @@
+{
+    "plex_url": "http://localhost:32400",
+    "plex_token": "YOUR_PLEX_TOKEN_HERE",
+    "library_names": [
+        "TV Shows"
+    ],
+    "collection_name": null,
+    "playlist_path": "TV Shows.xsp",
+    "log_file": null,
+    "fuzzy_threshold": 80,
+    "dry_run": false
+}
