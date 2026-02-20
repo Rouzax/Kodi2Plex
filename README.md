@@ -1,11 +1,10 @@
 # Kodi2Plex
 
-Sync a [Kodi Smart Playlist](https://kodi.wiki/view/Smart_playlists) (.xsp) to a [Plex](https://www.plex.tv/) Collection or Playlist using fuzzy title matching.
+Sync a [Kodi Smart Playlist](https://kodi.wiki/view/Smart_playlists) (.xsp) to a [Plex](https://www.plex.tv/) Collection using fuzzy title matching.
 
 ## Features
 
-- **Full sync** — adds missing shows and removes stale ones
-- **Collection or Playlist** — sync to either a Plex collection or a Plex playlist
+- **Full sync** — adds missing shows and removes stale ones from the collection
 - **Multi-library** — searches across multiple Plex TV show libraries
 - **Fuzzy matching** — normalizes articles, punctuation, year suffixes, and ampersands for reliable matching
 - **Guarded matching** — prevents false positives from short substring matches
@@ -53,44 +52,16 @@ pip install -r requirements.txt
 
 All settings are stored in `config.json`:
 
-| Setting           | Type       | Description                                         | Default        |
-|-------------------|------------|-----------------------------------------------------|----------------|
-| `plex_url`        | `string`   | Plex server URL                                     | —              |
-| `plex_token`      | `string`   | Plex authentication token                           | —              |
-| `library_names`   | `string[]` | Plex TV show library names to search                | —              |
-| `sync_mode`       | `string\|string[]` | `"collection"`, `"playlist"`, or both       | `"collection"` |
-| `collection_name` | `string`   | Target name (`null` = use playlist name)            | `null`         |
-| `playlist_path`   | `string`   | Path to Kodi `.xsp` file                            | —              |
-| `log_file`        | `string`   | Log file path (`null` = console only)               | `null`         |
-| `fuzzy_threshold` | `int`      | Minimum fuzzy match score, 0–100                    | `80`           |
-| `dry_run`         | `bool`     | Preview mode — no changes made to Plex              | `false`        |
-
-### Sync Modes
-
-**Collection** (default) — shows appear as a browsable collection within your Plex library. Collections are visible to all users with access to the library.
-
-**Playlist** — shows appear in the Plex sidebar under Playlists. Playlists are per-user and support custom ordering.
-
-**Both** — sync to both a collection and a playlist in a single run.
-
-```json
-"sync_mode": "collection"
-```
-
-```json
-"sync_mode": "playlist"
-```
-
-```json
-"sync_mode": ["collection", "playlist"]
-```
-
-You can also override the mode via CLI:
-
-```bash
-python kodi2plex.py --mode playlist
-python kodi2plex.py --mode collection playlist
-```
+| Setting           | Type       | Description                                         | Default  |
+|-------------------|------------|-----------------------------------------------------|----------|
+| `plex_url`        | `string`   | Plex server URL                                     | —        |
+| `plex_token`      | `string`   | Plex authentication token                           | —        |
+| `library_names`   | `string[]` | Plex TV show library names to search                | —        |
+| `collection_name` | `string`   | Collection name (`null` = use playlist name)        | `null`   |
+| `playlist_path`   | `string`   | Path to Kodi `.xsp` file                            | —        |
+| `log_file`        | `string`   | Log file path (`null` = console only)               | `null`   |
+| `fuzzy_threshold` | `int`      | Minimum fuzzy match score, 0–100                    | `80`     |
+| `dry_run`         | `bool`     | Preview mode — no changes made to Plex              | `false`  |
 
 ### Multi-Library Support
 
@@ -120,14 +91,8 @@ python kodi2plex.py -c /path/to/config.json
 # Override playlist path
 python kodi2plex.py -p "/path/to/playlist.xsp"
 
-# Override target name
+# Override collection name
 python kodi2plex.py -n "My TV Shows"
-
-# Sync as playlist instead of collection
-python kodi2plex.py --mode playlist
-
-# Sync to both collection and playlist
-python kodi2plex.py --mode collection playlist
 
 # Dry run — preview changes without modifying Plex
 python kodi2plex.py --dry-run

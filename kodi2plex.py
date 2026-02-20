@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Kodi2Plex: Syncs a Kodi Smart Playlist to a Plex Collection or Playlist.
+Kodi2Plex: Syncs a Kodi Smart Playlist to a Plex Collection.
 
 Reads TV show titles from a Kodi Smart Playlist XML (.xsp) file and
-synchronizes them into a Plex collection or playlist using fuzzy title
-matching.
+synchronizes them into a Plex collection using fuzzy title matching.
 
 Full sync behavior: adds missing shows, removes stale ones.
 """
@@ -18,15 +17,11 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from plexapi.exceptions import NotFound
 from plexapi.server import PlexServer
 from thefuzz import fuzz
 
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-
-VALID_SYNC_MODES = ("collection", "playlist")
-
 
 @dataclass
 class Config:
@@ -35,19 +30,10 @@ class Config:
     plex_token: str
     library_names: list[str]
     playlist_path: str
-    sync_modes: list[str] = field(default_factory=lambda: ["collection"])
     collection_name: str | None = None
     log_file: str | None = None
     fuzzy_threshold: int = 80
     dry_run: bool = False
-
-    def __post_init__(self):
-        for mode in self.sync_modes:
-            if mode not in VALID_SYNC_MODES:
-                raise ValueError(
-                    f"Invalid sync_mode '{mode}'. "
-                    f"Must be one of: {', '.join(VALID_SYNC_MODES)}"
-                )
 
     @classmethod
     def from_file(cls, path: str) -> "Config":
@@ -66,15 +52,6 @@ class Config:
             value = data["library_names"]
             if isinstance(value, str):
                 data["library_names"] = [value]
-
-        # Support "sync_mode" (string) and "sync_modes" (list)
-        if "sync_mode" in data and "sync_modes" not in data:
-            value = data.pop("sync_mode")
-            data["sync_modes"] = [value] if isinstance(value, str) else value
-        elif "sync_modes" in data:
-            value = data["sync_modes"]
-            if isinstance(value, str):
-                data["sync_modes"] = [value]
 
         return cls(**data)
 
@@ -257,182 +234,41 @@ def find_best_match(
     return MatchResult(playlist_title=playlist_title, score=best_score)
 
 
-# ── Sync Stats ────────────────────────────────────────────────────────────────
+# ── Collection Sync ───────────────────────────────────────────────────────────
 
 @dataclass
 class SyncStats:
     """Tracks sync operation statistics."""
-    sync_modes: list[str] = field(default_factory=list)
-    added: dict[str, list[str]] = field(default_factory=dict)
-    removed: dict[str, list[str]] = field(default_factory=dict)
-    already_synced: dict[str, list[str]] = field(default_factory=dict)
+    added: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+    already_in_collection: list[str] = field(default_factory=list)
     not_found: list[str] = field(default_factory=list)
     total_playlist: int = 0
     total_plex_library: int = 0
 
 
-# ── Collection Sync ───────────────────────────────────────────────────────────
-
-def sync_as_collection(
-    plex: PlexServer,
-    libraries: list,
-    matched_shows: list[MatchResult],
-    target_name: str,
-    dry_run: bool,
-    logger: logging.Logger,
-) -> tuple[list[str], list[str], list[str]]:
-    """
-    Sync matched shows to a Plex collection.
-
-    Returns: (added, removed, already_synced) title lists
-    """
-    added, removed, already = [], [], []
-
-    # Get current collection members across all libraries
-    current_shows = []
-    for library in libraries:
-        try:
-            collections = library.search(title=target_name, libtype="collection")
-            for col in collections:
-                if col.title == target_name:
-                    current_shows.extend(col.items())
-        except Exception:
-            pass
-
-    current_ids = {show.ratingKey for show in current_shows}
-    desired_ids = {r.plex_show.ratingKey for r in matched_shows}
-
-    # Add missing
-    to_add = [r for r in matched_shows if r.plex_show.ratingKey not in current_ids]
-    if to_add:
-        logger.info("Adding to collection:")
-        for result in to_add:
-            logger.info(f"  + {result.plex_title}", extra={"action": "add"})
-            if not dry_run:
-                result.plex_show.addCollection(target_name)
-            added.append(result.plex_title)
-    else:
-        logger.info("No shows to add.")
-
-    # Remove stale
-    to_remove = [s for s in current_shows if s.ratingKey not in desired_ids]
-    if to_remove:
-        logger.info("Removing from collection:")
-        for show in to_remove:
-            logger.info(f"  - {show.title}", extra={"action": "remove"})
-            if not dry_run:
-                show.removeCollection(target_name)
-            removed.append(show.title)
-    else:
-        logger.info("No shows to remove.")
-
-    # Already in sync
-    already = [
-        r.plex_title for r in matched_shows
-        if r.plex_show.ratingKey in current_ids
-    ]
-
-    return added, removed, already
-
-
-# ── Playlist Sync ─────────────────────────────────────────────────────────────
-
-def sync_as_playlist(
-    plex: PlexServer,
-    matched_shows: list[MatchResult],
-    target_name: str,
-    dry_run: bool,
-    logger: logging.Logger,
-) -> tuple[list[str], list[str], list[str]]:
-    """
-    Sync matched shows to a Plex playlist.
-
-    Returns: (added, removed, already_synced) title lists
-    """
-    added, removed, already = [], [], []
-
-    # Find existing playlist
-    existing_playlist = None
-    try:
-        existing_playlist = plex.playlist(target_name)
-    except NotFound:
-        pass
-
-    desired_shows = [r.plex_show for r in matched_shows]
-    desired_ids = {r.plex_show.ratingKey for r in matched_shows}
-
-    if existing_playlist is None:
-        # Create new playlist with all matched shows
-        if desired_shows:
-            logger.info("Creating new playlist:")
-            for result in matched_shows:
-                logger.info(f"  + {result.plex_title}", extra={"action": "add"})
-                added.append(result.plex_title)
-            if not dry_run:
-                plex.createPlaylist(target_name, items=desired_shows)
-        else:
-            logger.info("No shows matched — playlist not created.")
-    else:
-        # Sync existing playlist
-        current_items = existing_playlist.items()
-        current_ids = {item.ratingKey for item in current_items}
-
-        # Add missing
-        to_add = [r for r in matched_shows if r.plex_show.ratingKey not in current_ids]
-        if to_add:
-            logger.info("Adding to playlist:")
-            for result in to_add:
-                logger.info(f"  + {result.plex_title}", extra={"action": "add"})
-                added.append(result.plex_title)
-            if not dry_run:
-                existing_playlist.addItems([r.plex_show for r in to_add])
-        else:
-            logger.info("No shows to add.")
-
-        # Remove stale
-        to_remove = [s for s in current_items if s.ratingKey not in desired_ids]
-        if to_remove:
-            logger.info("Removing from playlist:")
-            for show in to_remove:
-                logger.info(f"  - {show.title}", extra={"action": "remove"})
-                removed.append(show.title)
-            if not dry_run:
-                existing_playlist.removeItems(to_remove)
-        else:
-            logger.info("No shows to remove.")
-
-        # Already in sync
-        already = [
-            r.plex_title for r in matched_shows
-            if r.plex_show.ratingKey in current_ids
-        ]
-
-    return added, removed, already
-
-
-# ── Main Sync ─────────────────────────────────────────────────────────────────
-
-def sync(config: Config, logger: logging.Logger) -> SyncStats:
+def sync_collection(
+    config: Config,
+    logger: logging.Logger
+) -> SyncStats:
     """
     Main sync logic: parse playlist, match to Plex across all libraries,
-    sync to collection and/or playlist based on config.
+    sync collection.
     """
-    stats = SyncStats(sync_modes=config.sync_modes)
-    modes_label = " + ".join(m.capitalize() for m in config.sync_modes)
+    stats = SyncStats()
 
     # ── Parse playlist ────────────────────────────────────────────────────
     logger.info("=" * 60)
-    logger.info(f"  Kodi2Plex — Sync Smart Playlist → Plex {modes_label}")
+    logger.info("  Kodi2Plex — Sync Smart Playlist → Plex Collection")
     logger.info("=" * 60)
 
     playlist = parse_playlist(config.playlist_path)
-    target_name = config.collection_name or playlist.name
+    collection_name = config.collection_name or playlist.name
     stats.total_playlist = len(playlist.titles)
 
     logger.info(f"Playlist:    {playlist.name}")
     logger.info(f"Shows:       {len(playlist.titles)}")
-    logger.info(f"Sync mode:   {modes_label}")
-    logger.info(f"Target:      {target_name}")
+    logger.info(f"Collection:  {collection_name}")
     logger.info(f"Libraries:   {', '.join(config.library_names)}")
     logger.info(f"Threshold:   {config.fuzzy_threshold}%")
     if config.dry_run:
@@ -483,31 +319,61 @@ def sync(config: Config, logger: logging.Logger) -> SyncStats:
                 extra={"action": "skip"},
             )
 
-    logger.info(f"Matched {len(matched_shows)}/{len(playlist.titles)} titles")
+    logger.info(
+        f"Matched {len(matched_shows)}/{len(playlist.titles)} titles"
+    )
     logger.info("-" * 60)
 
-    # ── Sync to each target mode ──────────────────────────────────────────
-    for mode in config.sync_modes:
-        mode_label = mode.capitalize()
-        logger.info(f"Syncing to {mode_label}: {target_name}")
-
-        if mode == "collection":
-            added, removed, already = sync_as_collection(
-                plex, libraries, matched_shows, target_name,
-                config.dry_run, logger,
+    # ── Get current collection members across all libraries ───────────────
+    current_collection_shows = []
+    for library in libraries:
+        try:
+            collections = library.search(
+                title=collection_name, libtype="collection"
             )
-        else:
-            added, removed, already = sync_as_playlist(
-                plex, matched_shows, target_name,
-                config.dry_run, logger,
+            for col in collections:
+                if col.title == collection_name:
+                    current_collection_shows.extend(col.items())
+        except Exception:
+            pass
+
+    current_ids = {show.ratingKey for show in current_collection_shows}
+    desired_ids = {r.plex_show.ratingKey for r in matched_shows}
+
+    # ── Add missing shows ─────────────────────────────────────────────────
+    to_add = [r for r in matched_shows if r.plex_show.ratingKey not in current_ids]
+    to_remove = [s for s in current_collection_shows if s.ratingKey not in desired_ids]
+
+    if to_add:
+        logger.info("Adding to collection:")
+        for result in to_add:
+            logger.info(
+                f"  + {result.plex_title}",
+                extra={"action": "add"},
             )
+            if not config.dry_run:
+                result.plex_show.addCollection(collection_name)
+            stats.added.append(result.plex_title)
+    else:
+        logger.info("No shows to add.")
 
-        stats.added[mode] = added
-        stats.removed[mode] = removed
-        stats.already_synced[mode] = already
+    # ── Remove stale shows ────────────────────────────────────────────────
+    if to_remove:
+        logger.info("Removing from collection:")
+        for show in to_remove:
+            logger.info(
+                f"  - {show.title}",
+                extra={"action": "remove"},
+            )
+            if not config.dry_run:
+                show.removeCollection(collection_name)
+            stats.removed.append(show.title)
+    else:
+        logger.info("No shows to remove.")
 
-        if len(config.sync_modes) > 1:
-            logger.info("-" * 60)
+    # ── Already in sync ───────────────────────────────────────────────────
+    already = [r for r in matched_shows if r.plex_show.ratingKey in current_ids]
+    stats.already_in_collection = [r.plex_title for r in already]
 
     return stats
 
@@ -523,25 +389,15 @@ def print_summary(stats: SyncStats, logger: logging.Logger, dry_run: bool = Fals
     logger.info("=" * 60)
     logger.info(f"  Playlist titles:       {stats.total_playlist}")
     logger.info(f"  Plex library size:     {stats.total_plex_library}")
-
-    for mode in stats.sync_modes:
-        mode_label = mode.capitalize()
-        added = stats.added.get(mode, [])
-        removed = stats.removed.get(mode, [])
-        already = stats.already_synced.get(mode, [])
-
-        if len(stats.sync_modes) > 1:
-            logger.info(f"  --- {mode_label} ---")
-
-        logger.info(f"  Already synced:        {len(already)}")
-        logger.info(
-            f"  Added:                 {len(added)}",
-            extra={"action": "add"} if added else {},
-        )
-        logger.info(
-            f"  Removed:               {len(removed)}",
-            extra={"action": "remove"} if removed else {},
-        )
+    logger.info(f"  Already in collection: {len(stats.already_in_collection)}")
+    logger.info(
+        f"  Added:                 {len(stats.added)}",
+        extra={"action": "add"} if stats.added else {},
+    )
+    logger.info(
+        f"  Removed:               {len(stats.removed)}",
+        extra={"action": "remove"} if stats.removed else {},
+    )
 
     if stats.not_found:
         logger.warning(
@@ -558,8 +414,7 @@ def print_summary(stats: SyncStats, logger: logging.Logger, dry_run: bool = Fals
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Kodi2Plex — Sync a Kodi Smart Playlist to a Plex "
-                    "Collection or Playlist."
+        description="Kodi2Plex — Sync a Kodi Smart Playlist to a Plex Collection."
     )
     parser.add_argument(
         "-c", "--config",
@@ -572,16 +427,9 @@ def main():
         help="Path to Kodi Smart Playlist XML (overrides config)",
     )
     parser.add_argument(
-        "-n", "--name",
+        "-n", "--collection-name",
         default=None,
-        help="Target collection/playlist name (overrides config)",
-    )
-    parser.add_argument(
-        "-m", "--mode",
-        nargs="+",
-        choices=VALID_SYNC_MODES,
-        default=None,
-        help="Sync mode(s): collection, playlist, or both (overrides config)",
+        help="Collection name (overrides config and playlist name)",
     )
     parser.add_argument(
         "--dry-run",
@@ -601,17 +449,15 @@ def main():
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
+    except (json.JSONDecodeError, TypeError) as e:
         print(f"Error reading config: {e}", file=sys.stderr)
         sys.exit(1)
 
     # CLI overrides
     if args.playlist:
         config.playlist_path = args.playlist
-    if args.name:
-        config.collection_name = args.name
-    if args.mode:
-        config.sync_modes = args.mode
+    if args.collection_name:
+        config.collection_name = args.collection_name
     if args.dry_run:
         config.dry_run = True
     if args.log:
@@ -622,7 +468,7 @@ def main():
 
     # Run sync
     try:
-        stats = sync(config, logger)
+        stats = sync_collection(config, logger)
         print_summary(stats, logger, config.dry_run)
     except FileNotFoundError as e:
         logger.error(f"File error: {e}")
