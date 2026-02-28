@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Dark background -->
+  <rect width="512" height="512" rx="15%" fill="#1e2023"/>
+
+  <!-- Kodi blue triangle (left) -->
+  <path d="M48 256l130-170v340z" fill="#17b2e7"/>
+
+  <!-- Right arrow (Kodi → Plex) -->
+  <line x1="208" y1="256" x2="296" y2="256" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+  <polyline points="278,238 300,256 278,274" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Plex gold chevron (right) -->
+  <path d="M334 86l130 170-130 170V86z" fill="#e5a00d"/>
+</svg>

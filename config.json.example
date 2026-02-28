@@ -1,12 +1,22 @@
 {
+    "kodi": {
+        "url": "http://localhost:8080",
+        "playlist": "TV Shows",
+        "username": null,
+        "password": null
+    },
     "plex_url": "http://localhost:32400",
     "plex_token": "YOUR_PLEX_TOKEN_HERE",
     "library_names": [
         "TV Shows"
     ],
     "collection_name": null,
-    "playlist_path": "TV Shows.xsp",
     "log_file": null,
     "fuzzy_threshold": 80,
-    "dry_run": false
+    "dry_run": false,
+    "pushover": {
+        "user_key": "YOUR_PUSHOVER_USER_KEY",
+        "app_token": "YOUR_PUSHOVER_APP_TOKEN"
+    },
+    "title_overrides": {}
 }
